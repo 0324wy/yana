@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Goal**: Build YANA — a local-only, ultra-lightweight personal AI assistant in TypeScript/Node.js.
+**Goal**: Build YANA — a local-first, ultra-lightweight personal AI assistant in TypeScript/Node.js.
 
 **Tech Stack**:
 - Runtime: Node.js v20+
@@ -19,7 +19,8 @@
 - **Safe by default**: explicit permission gates for file writes and shell execution.
 - **Streaming-first**: agent and tools emit events/deltas for responsive UIs.
 - **Provider-agnostic**: normalize tool calls and streaming across providers.
-- **Local-only**: no remote/cloud deployment; bind any services to loopback.
+- **Local-first**: MVP runs fully on one machine.
+- **Remote-ready**: design interfaces so a future gateway/remote mode can be added.
 
 ---
 
@@ -443,6 +444,7 @@ export class AgentLoop {
 | **MCP Client** | Connect to MCP servers | Phase 12 |
 | **Sandboxing** | Docker/container isolation | Phase 12 |
 | **Multi-user** | Authentication, rate limiting | Phase 12 |
+| **Gateway** | Client/server split (remote control plane) | Phase 12 |
 | **Plan/Build Agents** | Read-only analysis vs full-access agent | Phase 12 |
 
 ---
@@ -480,7 +482,7 @@ export class AgentLoop {
 | Validation | Zod | Type-safe, lightweight |
 | Permissions | Allowlist + confirm gates | Safe by default for local use |
 | Streaming | Event-based | Responsive CLI + future UI support |
-| Deployment | Local-only | No remote/cloud mode |
+| Deployment | Local-first | Remote-ready later |
 
 ---
 
@@ -519,7 +521,7 @@ export class AgentLoop {
 
 ## Security Note
 
-**Local-only.** No remote/cloud deployment. Any services must bind to loopback.
+**Local-first.** MVP runs on one machine; bind services to loopback by default.
 
 **No sandboxing by default** — runs directly on host:
 - `exec` tool runs shell commands
