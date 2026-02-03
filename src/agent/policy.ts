@@ -10,6 +10,7 @@ export class Policy {
   private writeAllowlist: string[];
   private execAllowlist: string[];
   private readOnly: boolean;
+  private allowAllExec: boolean;
 
   constructor(options?: {
     readAllowlist?: string[];
@@ -19,7 +20,11 @@ export class Policy {
   }) {
     this.readAllowlist = (options?.readAllowlist ?? []).map((p) => path.resolve(p));
     this.writeAllowlist = (options?.writeAllowlist ?? []).map((p) => path.resolve(p));
-    this.execAllowlist = (options?.execAllowlist ?? []).map((p) => path.resolve(p));
+    const rawExecAllowlist = options?.execAllowlist ?? [];
+    this.allowAllExec = rawExecAllowlist.includes("*");
+    this.execAllowlist = rawExecAllowlist
+      .filter((p) => p !== "*")
+      .map((p) => path.resolve(p));
     this.readOnly = options?.readOnly ?? false;
   }
 
@@ -50,6 +55,7 @@ export class Policy {
 
   canExec(command: string) {
     if (this.readOnly) return false;
+    if (this.allowAllExec) return true;
     if (this.execAllowlist.length === 0) return false;
     const resolved = path.resolve(command);
     return this.execAllowlist.some((root) => isSubpath(root, resolved));
