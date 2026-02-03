@@ -7,6 +7,7 @@ import { Policy } from "../agent/policy";
 import { ToolRegistry } from "../agent/tools/registry";
 import { ReadFileTool } from "../agent/tools/filesystem";
 import { OpenAIProvider } from "../providers/adapters/openai";
+import { runTui } from "../channels/tui";
 
 function parseArgs(argv: string[]) {
   const args = { message: "" };
@@ -45,29 +46,32 @@ function loadDotEnv(filePath = path.join(process.cwd(), ".env")) {
 async function main() {
   loadDotEnv();
   const args = parseArgs(process.argv.slice(2));
-  if (!args.message) {
-    console.error("Usage: yana -m \"your message\"");
-    process.exit(1);
+  const createLoop = () => {
+    const provider = new OpenAIProvider({
+      apiKey: process.env.OPENAI_API_KEY,
+      apiBase: process.env.OPENAI_API_BASE,
+      model: process.env.OPENAI_MODEL,
+    });
+
+    const policy = new Policy({
+      readAllowlist: [process.cwd()],
+    });
+
+    const tools = new ToolRegistry();
+    tools.register(new ReadFileTool(policy));
+
+    const sessions = new SessionManager();
+    return new AgentLoop(provider, tools, sessions);
+  };
+
+  if (args.message) {
+    const loop = createLoop();
+    const content = await loop.runOnce("default", args.message);
+    process.stdout.write(content + "\n");
+    return;
   }
 
-  const provider = new OpenAIProvider({
-    apiKey: process.env.OPENAI_API_KEY,
-    apiBase: process.env.OPENAI_API_BASE,
-    model: process.env.OPENAI_MODEL,
-  });
-
-  const policy = new Policy({
-    readAllowlist: [process.cwd()],
-  });
-
-  const tools = new ToolRegistry();
-  tools.register(new ReadFileTool(policy));
-
-  const sessions = new SessionManager();
-  const loop = new AgentLoop(provider, tools, sessions);
-
-  const content = await loop.runOnce("default", args.message);
-  process.stdout.write(content + "\n");
+  await runTui(createLoop);
 }
 
 main().catch((err) => {
