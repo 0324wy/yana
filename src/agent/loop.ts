@@ -2,6 +2,12 @@ import { LLMProvider } from "../providers/llm";
 import { ToolRegistry } from "./tools/registry";
 import { SessionManager } from "./session";
 
+export type AgentEvent =
+  | { type: "status"; message: string }
+  | { type: "tool_call"; name: string; arguments: Record<string, unknown> }
+  | { type: "tool_result"; name: string; result: string }
+  | { type: "tool_error"; name: string; error: string };
+
 export class AgentLoop {
   private maxIterations = 4;
 
@@ -77,6 +83,7 @@ export class AgentLoop {
     sessionKey: string,
     userContent: string,
     onDelta: (delta: string) => void,
+    onEvent?: (event: AgentEvent) => void,
   ) {
     const session = await this.sessions.getOrCreate(sessionKey);
     const history = session.getHistory().map((msg) => ({
@@ -97,6 +104,7 @@ export class AgentLoop {
       iteration += 1;
 
       if (this.provider.stream) {
+        onEvent?.({ type: "status", message: "thinking" });
         let toolCalls = undefined as
           | { id: string; name: string; arguments: Record<string, unknown> }[]
           | undefined;
@@ -116,6 +124,14 @@ export class AgentLoop {
         }
 
         if (toolCalls && toolCalls.length > 0) {
+          for (const toolCall of toolCalls) {
+            onEvent?.({
+              type: "tool_call",
+              name: toolCall.name,
+              arguments: toolCall.arguments,
+            });
+          }
+
           messages.push({
             role: "assistant",
             content: streamedContent || null,
@@ -130,10 +146,26 @@ export class AgentLoop {
           });
 
           for (const toolCall of toolCalls) {
-            const result = await this.tools.execute(
-              toolCall.name,
-              toolCall.arguments,
-            );
+            let result = "";
+            try {
+              result = await this.tools.execute(
+                toolCall.name,
+                toolCall.arguments,
+              );
+              onEvent?.({
+                type: "tool_result",
+                name: toolCall.name,
+                result,
+              });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              onEvent?.({
+                type: "tool_error",
+                name: toolCall.name,
+                error: msg,
+              });
+              throw err;
+            }
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,
@@ -149,12 +181,21 @@ export class AgentLoop {
         finalContent = streamedContent;
         break;
       } else {
+        onEvent?.({ type: "status", message: "thinking" });
         const response = await this.provider.chat(
           messages,
           this.tools.getDefinitions(),
         );
 
         if (response.toolCalls && response.toolCalls.length > 0) {
+          for (const toolCall of response.toolCalls) {
+            onEvent?.({
+              type: "tool_call",
+              name: toolCall.name,
+              arguments: toolCall.arguments,
+            });
+          }
+
           messages.push({
             role: "assistant",
             content: response.content ?? null,
@@ -169,10 +210,26 @@ export class AgentLoop {
           });
 
           for (const toolCall of response.toolCalls) {
-            const result = await this.tools.execute(
-              toolCall.name,
-              toolCall.arguments,
-            );
+            let result = "";
+            try {
+              result = await this.tools.execute(
+                toolCall.name,
+                toolCall.arguments,
+              );
+              onEvent?.({
+                type: "tool_result",
+                name: toolCall.name,
+                result,
+              });
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              onEvent?.({
+                type: "tool_error",
+                name: toolCall.name,
+                error: msg,
+              });
+              throw err;
+            }
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,

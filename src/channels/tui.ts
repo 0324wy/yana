@@ -1,10 +1,19 @@
 import blessed from "blessed";
-import { AgentLoop } from "../agent/loop";
+import { marked } from "marked";
+import TerminalRenderer from "marked-terminal";
+import { AgentEvent, AgentLoop } from "../agent/loop";
 
 export type CreateLoop = () => AgentLoop;
 
 export async function runTui(createLoop: CreateLoop) {
   const loop = createLoop();
+
+  const mdRenderer = new TerminalRenderer();
+  marked.setOptions({ renderer: mdRenderer as any });
+
+  const renderMarkdown = (text: string) => {
+    return String(marked.parse(text));
+  };
 
   const theme = {
     bg: "black", // Main background
@@ -23,6 +32,21 @@ export async function runTui(createLoop: CreateLoop) {
         border: "red",
         header: "red",
         text: "red"
+    },
+    status: {
+        border: "#666666",
+        header: "#888888",
+        text: "#888888"
+    },
+    tool: {
+        border: "yellow",
+        header: "yellow",
+        text: "white"
+    },
+    toolResult: {
+        border: "blue",
+        header: "blue",
+        text: "white"
     },
     input: {
         border: "white",
@@ -92,8 +116,16 @@ export async function runTui(createLoop: CreateLoop) {
   let activeAssistantContent = "";
   let busy = false;
 
+  const truncate = (text: string, max = 800) => {
+    if (text.length <= max) return text;
+    return text.slice(0, max) + "...";
+  };
+
   // Helper to add a message cell
-  const appendCell = (role: 'user' | 'assistant' | 'error', text: string): blessed.Widgets.BoxElement => {
+  const appendCell = (
+    role: "user" | "assistant" | "error" | "status" | "tool" | "tool_result",
+    text: string,
+  ): blessed.Widgets.BoxElement => {
     
     // Config based on role
     let borderColor = theme.gray;
@@ -112,6 +144,18 @@ export async function runTui(createLoop: CreateLoop) {
             borderColor = theme.error.border;
             title = " Error ";
             break;
+        case 'status':
+            borderColor = theme.status.border;
+            title = " Status ";
+            break;
+        case 'tool':
+            borderColor = theme.tool.border;
+            title = " Tool Call ";
+            break;
+        case 'tool_result':
+            borderColor = theme.toolResult.border;
+            title = " Tool Result ";
+            break;
     }
 
     const cell = blessed.box({
@@ -127,7 +171,10 @@ export async function runTui(createLoop: CreateLoop) {
         style: {
             border: { fg: borderColor },
             label: { fg: borderColor, bold: true },
-            fg: theme[role === 'error' ? 'error' : role].text // fallback
+            fg:
+              role === "tool_result"
+                ? theme.toolResult.text
+                : theme[role === "error" ? "error" : role].text
         }
     });
 
@@ -164,6 +211,52 @@ export async function runTui(createLoop: CreateLoop) {
     contentOffset += height;
   };
 
+  const finalizeActiveAssistant = () => {
+    if (activeAssistantBox) {
+      finalizeCellConfig(activeAssistantBox);
+      activeAssistantBox = null;
+    }
+  };
+
+  const handleEvent = (event: AgentEvent) => {
+    if (event.type === "status") {
+      const statusCell = appendCell("status", event.message);
+      finalizeCellConfig(statusCell);
+      historyBox.setScrollPerc(100);
+      screen.render();
+      return;
+    }
+
+    if (event.type === "tool_call") {
+      finalizeActiveAssistant();
+      const text = `${event.name} ${JSON.stringify(event.arguments)}`;
+      const cell = appendCell("tool", truncate(text));
+      finalizeCellConfig(cell);
+      historyBox.setScrollPerc(100);
+      screen.render();
+      return;
+    }
+
+    if (event.type === "tool_result") {
+      finalizeActiveAssistant();
+      const text = `${event.name}: ${event.result}`;
+      const cell = appendCell("tool_result", truncate(text));
+      finalizeCellConfig(cell);
+      historyBox.setScrollPerc(100);
+      screen.render();
+      return;
+    }
+
+    if (event.type === "tool_error") {
+      finalizeActiveAssistant();
+      const text = `${event.name}: ${event.error}`;
+      const cell = appendCell("error", truncate(text));
+      finalizeCellConfig(cell);
+      historyBox.setScrollPerc(100);
+      screen.render();
+    }
+  };
+
   inputBox.on("submit", async (value: string) => {
     const text = value.trim();
     if (!text || busy) {
@@ -180,31 +273,22 @@ export async function runTui(createLoop: CreateLoop) {
     const userCell = appendCell('user', text);
     finalizeCellConfig(userCell);
     
-    // 2. Prepare Assistant Cell
-    activeAssistantContent = "";
-    activeAssistantBox = appendCell('assistant', "...");
-    screen.render();
-
-    // Scroll to bottom
-    historyBox.setScrollPerc(100);
-    screen.render();
-
     try {
-        let firstDelta = true;
         await loop.runOnceStream("default", text, (delta) => {
-            if (firstDelta) {
-                activeAssistantContent = ""; // clear "..."
-                firstDelta = false;
+            if (!activeAssistantBox) {
+                activeAssistantContent = "";
+                activeAssistantBox = appendCell("assistant", "");
+                screen.render();
             }
             activeAssistantContent += delta;
             if (activeAssistantBox) {
-                activeAssistantBox.setContent(activeAssistantContent);
+                activeAssistantBox.setContent(renderMarkdown(activeAssistantContent));
                 // During streaming, we leave height as 'shrink' so it grows.
                 // We keep scrolling to bottom.
                 historyBox.setScrollPerc(100);
                 screen.render();
             }
-        });
+        }, handleEvent);
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         appendCell('error', msg); 
@@ -212,10 +296,7 @@ export async function runTui(createLoop: CreateLoop) {
         // If assistant failed mid-stream, we might want to just append error box.
         // We'll calculate offset for the assistant box first.
     } finally {
-        if (activeAssistantBox) {
-             finalizeCellConfig(activeAssistantBox);
-             activeAssistantBox = null;
-        }
+        finalizeActiveAssistant();
         busy = false;
         inputBox.focus();
         screen.render();

@@ -36,6 +36,8 @@
     "blessed": "^0.1.81",
     "cron-parser": "^4.9.0",
     "date-fns": "^3.0.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
     "pino": "^8.16.0",
     "zod": "^3.22.0"
   },
