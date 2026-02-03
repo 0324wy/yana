@@ -44,7 +44,6 @@ export async function runTui(createLoop: CreateLoop) {
     height: "100%-3", // Leave space for input
     scrollable: true,
     alwaysScroll: true,
-    mouse: true,
     keys: true,
     vi: true,
     style: {
@@ -221,6 +220,24 @@ export async function runTui(createLoop: CreateLoop) {
         inputBox.focus();
         screen.render();
     }
+  });
+
+  // Global Key Bindings for Scrolling
+  screen.key(['pageup'], () => {
+    historyBox.scroll(-10); // Scroll up 10 lines
+    screen.render();
+  });
+  screen.key(['pagedown'], () => {
+    historyBox.scroll(10); // Scroll down 10 lines
+    screen.render();
+  });
+  screen.key(['C-up'], () => {
+    historyBox.scroll(-1);
+    screen.render();
+  });
+  screen.key(['C-down'], () => {
+    historyBox.scroll(1);
+    screen.render();
   });
 
   screen.key(["C-c", "q"], () => process.exit(0));
