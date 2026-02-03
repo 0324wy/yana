@@ -8,6 +8,8 @@ import { ToolRegistry } from "../agent/tools/registry";
 import { ReadFileTool } from "../agent/tools/filesystem";
 import { OpenAIProvider } from "../providers/adapters/openai";
 import { runTui } from "../channels/tui";
+import { loadConfig } from "../config";
+import { createLogger } from "../utils/logger";
 
 function parseArgs(argv: string[]) {
   const args = { message: "" };
@@ -44,17 +46,27 @@ function loadDotEnv(filePath = path.join(process.cwd(), ".env")) {
 }
 
 async function main() {
+  const logger = createLogger();
   loadDotEnv();
   const args = parseArgs(process.argv.slice(2));
+  const config = loadConfig();
   const createLoop = () => {
     const provider = new OpenAIProvider({
-      apiKey: process.env.OPENAI_API_KEY,
-      apiBase: process.env.OPENAI_API_BASE,
-      model: process.env.OPENAI_MODEL,
+      apiKey: process.env.OPENAI_API_KEY ?? config.providers?.openai?.apiKey,
+      apiBase:
+        process.env.OPENAI_API_BASE ??
+        config.providers?.openrouter?.apiBase,
+      model:
+        process.env.OPENAI_MODEL ??
+        config.agents?.defaults?.model ??
+        "gpt-4o-mini",
     });
 
     const policy = new Policy({
-      readAllowlist: [process.cwd()],
+      readAllowlist:
+        config.policy?.readAllowlist && config.policy.readAllowlist.length > 0
+          ? config.policy.readAllowlist
+          : [process.cwd()],
     });
 
     const tools = new ToolRegistry();
@@ -71,6 +83,7 @@ async function main() {
     return;
   }
 
+  logger.info("Starting TUI...");
   await runTui(createLoop);
 }
 
