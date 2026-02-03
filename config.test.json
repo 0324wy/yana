@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "openai": {
+      "apiKey": ""
+    }
+  },
+  "agents": {
+    "defaults": { "model": "gpt-4o-mini" }
+  },
+  "policy": {
+    "readOnly": false,
+    "readAllowlist": ["/Users/wangyan/softwareProjects/frontProjects/yana"],
+    "writeAllowlist": ["/Users/wangyan/softwareProjects/frontProjects/yana"],
+    "execAllowlist": ["/bin/ls"]
+  }
+}

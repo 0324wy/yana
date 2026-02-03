@@ -5,7 +5,13 @@ import { AgentLoop } from "../agent/loop";
 import { SessionManager } from "../agent/session";
 import { Policy } from "../agent/policy";
 import { ToolRegistry } from "../agent/tools/registry";
-import { ReadFileTool } from "../agent/tools/filesystem";
+import {
+  EditFileTool,
+  ListDirTool,
+  ReadFileTool,
+  WriteFileTool,
+} from "../agent/tools/filesystem";
+import { ExecTool } from "../agent/tools/exec";
 import { OpenAIProvider } from "../providers/adapters/openai";
 import { runTui } from "../channels/tui";
 import { loadConfig } from "../config";
@@ -67,10 +73,17 @@ async function main() {
         config.policy?.readAllowlist && config.policy.readAllowlist.length > 0
           ? config.policy.readAllowlist
           : [process.cwd()],
+      writeAllowlist: config.policy?.writeAllowlist ?? [],
+      execAllowlist: config.policy?.execAllowlist ?? [],
+      readOnly: config.policy?.readOnly ?? false,
     });
 
     const tools = new ToolRegistry();
     tools.register(new ReadFileTool(policy));
+    tools.register(new ListDirTool(policy));
+    tools.register(new WriteFileTool(policy));
+    tools.register(new EditFileTool(policy));
+    tools.register(new ExecTool(policy));
 
     const sessions = new SessionManager();
     return new AgentLoop(provider, tools, sessions);
