@@ -12,6 +12,8 @@ import {
   WriteFileTool,
 } from "../agent/tools/filesystem";
 import { ExecTool } from "../agent/tools/exec";
+import { MessageTool } from "../agent/tools/message";
+import { SpawnTool } from "../agent/tools/spawn";
 import { WebFetchTool, WebSearchTool } from "../agent/tools/web";
 import { OpenAIProvider } from "../providers/adapters/openai";
 import { runTui } from "../channels/tui";
@@ -87,6 +89,8 @@ async function main() {
     tools.register(new ExecTool(policy));
     tools.register(new WebSearchTool(config.webSearch?.apiKey));
     tools.register(new WebFetchTool());
+    tools.register(new MessageTool());
+    tools.register(new SpawnTool());
 
     const sessions = new SessionManager();
     return new AgentLoop(provider, tools, sessions);
