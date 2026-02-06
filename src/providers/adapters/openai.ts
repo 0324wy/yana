@@ -19,7 +19,7 @@ type OpenAIToolCall = {
 type OpenAIChatResponse = {
   choices: Array<{
     message?: {
-      content?: string | null;
+      content?: unknown;
       tool_calls?: OpenAIToolCall[];
       function_call?: { name: string; arguments: string } | null;
     };
@@ -48,6 +48,37 @@ function safeParseArguments(raw: string) {
     // ignore
   }
   return {} as Record<string, unknown>;
+}
+
+function extractText(content: unknown): string | null {
+  if (typeof content === "string") return content;
+  if (typeof content === "number" || typeof content === "boolean") {
+    return String(content);
+  }
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((part) => extractText(part))
+      .filter((part): part is string => Boolean(part));
+    return parts.length > 0 ? parts.join("") : null;
+  }
+  if (content && typeof content === "object") {
+    const maybeText = (content as { text?: unknown }).text;
+    if (typeof maybeText === "string") return maybeText;
+    const maybeContent = (content as { content?: unknown }).content;
+    if (typeof maybeContent === "string") return maybeContent;
+  }
+  return null;
+}
+
+function normalizeContent(content: unknown): string | null {
+  const extracted = extractText(content);
+  if (extracted !== null) return extracted;
+  if (content === null || content === undefined) return null;
+  try {
+    return JSON.stringify(content);
+  } catch {
+    return String(content);
+  }
 }
 
 function mapToolCalls(toolCalls?: OpenAIToolCall[]): ToolCall[] | undefined {
@@ -91,10 +122,11 @@ export class OpenAIProvider implements LLMProvider {
     const message = choice?.message ?? {};
 
     const toolCalls = mapToolCalls(message.tool_calls);
+    const normalizedContent = normalizeContent(message.content);
     const functionCall = message.function_call;
     if (!toolCalls && functionCall) {
       return {
-        content: message.content ?? null,
+        content: normalizedContent,
         toolCalls: [
           {
             id: "function_call",
@@ -114,7 +146,7 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     return {
-      content: message.content ?? null,
+      content: normalizedContent,
       toolCalls,
       finishReason: choice?.finish_reason ?? "stop",
       usage: response.usage
@@ -174,9 +206,10 @@ export class OpenAIProvider implements LLMProvider {
         const delta = parsed?.choices?.[0]?.delta ?? {};
         finishReason = parsed?.choices?.[0]?.finish_reason ?? finishReason;
 
-        if (typeof delta.content === "string" && delta.content.length > 0) {
+        const deltaText = extractText(delta.content);
+        if (typeof deltaText === "string" && deltaText.length > 0) {
           yield {
-            content: delta.content,
+            content: deltaText,
             finishReason: finishReason ?? "streaming",
           };
         }
