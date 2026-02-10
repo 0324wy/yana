@@ -1,10 +1,20 @@
 import { LLMProvider, LLMResponse, ToolCall } from "../llm";
+import {
+  extractText,
+  normalizeContent,
+  safeParseArguments,
+} from "../normalize";
+import { fetchWithRetry } from "../http";
 
 export type OpenAIProviderOptions = {
   apiKey?: string;
   apiBase?: string;
   model?: string;
   timeoutMs?: number;
+  maxRetries?: number;
+  retryBaseDelayMs?: number;
+  retryMaxDelayMs?: number;
+  extraHeaders?: Record<string, string>;
 };
 
 type OpenAIToolCall = {
@@ -38,49 +48,6 @@ function normalizeApiBase(apiBase?: string) {
   return `${base.replace(/\/$/, "")}/v1`;
 }
 
-function safeParseArguments(raw: string) {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    // ignore
-  }
-  return {} as Record<string, unknown>;
-}
-
-function extractText(content: unknown): string | null {
-  if (typeof content === "string") return content;
-  if (typeof content === "number" || typeof content === "boolean") {
-    return String(content);
-  }
-  if (Array.isArray(content)) {
-    const parts = content
-      .map((part) => extractText(part))
-      .filter((part): part is string => Boolean(part));
-    return parts.length > 0 ? parts.join("") : null;
-  }
-  if (content && typeof content === "object") {
-    const maybeText = (content as { text?: unknown }).text;
-    if (typeof maybeText === "string") return maybeText;
-    const maybeContent = (content as { content?: unknown }).content;
-    if (typeof maybeContent === "string") return maybeContent;
-  }
-  return null;
-}
-
-function normalizeContent(content: unknown): string | null {
-  const extracted = extractText(content);
-  if (extracted !== null) return extracted;
-  if (content === null || content === undefined) return null;
-  try {
-    return JSON.stringify(content);
-  } catch {
-    return String(content);
-  }
-}
-
 function mapToolCalls(toolCalls?: OpenAIToolCall[]): ToolCall[] | undefined {
   if (!toolCalls || toolCalls.length === 0) return undefined;
   return toolCalls.map((call) => ({
@@ -95,6 +62,10 @@ export class OpenAIProvider implements LLMProvider {
   private apiBase: string;
   private model: string;
   private timeoutMs: number;
+  private maxRetries: number;
+  private retryBaseDelayMs: number;
+  private retryMaxDelayMs: number;
+  private extraHeaders: Record<string, string>;
 
   constructor(options: OpenAIProviderOptions) {
     if (!options.apiKey) {
@@ -104,6 +75,10 @@ export class OpenAIProvider implements LLMProvider {
     this.apiBase = normalizeApiBase(options.apiBase);
     this.model = options.model ?? "gpt-4o-mini";
     this.timeoutMs = options.timeoutMs ?? 60000;
+    this.maxRetries = options.maxRetries ?? 2;
+    this.retryBaseDelayMs = options.retryBaseDelayMs ?? 200;
+    this.retryMaxDelayMs = options.retryMaxDelayMs ?? 2000;
+    this.extraHeaders = options.extraHeaders ?? {};
   }
 
   async chat(
@@ -269,26 +244,25 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   private async requestRaw(body: Record<string, unknown>) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const res = await fetch(`${this.apiBase}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!res.ok && !res.body) {
-        throw new Error(`OpenAI error ${res.status}`);
-      }
-
-      return res;
-    } finally {
-      clearTimeout(timeout);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.apiKey}`,
+    };
+    for (const [key, value] of Object.entries(this.extraHeaders)) {
+      if (value) headers[key] = value;
     }
+    return fetchWithRetry({
+      provider: "OpenAI",
+      url: `${this.apiBase}/chat/completions`,
+      init: {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      },
+      timeoutMs: this.timeoutMs,
+      maxRetries: this.maxRetries,
+      retryBaseDelayMs: this.retryBaseDelayMs,
+      retryMaxDelayMs: this.retryMaxDelayMs,
+    });
   }
 }

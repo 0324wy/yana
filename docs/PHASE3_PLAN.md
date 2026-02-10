@@ -7,7 +7,6 @@ Goal: add multi-provider support with consistent chat/stream/tool-call handling,
 - Hardened OpenAI-compatible adapter (content normalization + tool call assembly)
 - Anthropic adapter with tools + streaming
 - OpenRouter adapter (OpenAI-compatible)
-- vLLM adapter (OpenAI-compatible)
 - Shared normalization utilities (content, tool calls, streaming)
 - Retry/backoff + error classification
 - Tests for parsing and streaming
@@ -21,7 +20,6 @@ Create/Update:
 - `src/providers/adapters/openai.ts`
 - `src/providers/adapters/anthropic.ts`
 - `src/providers/adapters/openrouter.ts`
-- `src/providers/adapters/vllm.ts`
 - `src/config/index.ts`
 - `src/cli/index.ts`
 - `tests/providers/*.test.ts`
@@ -39,7 +37,6 @@ Create/Update:
     - `OPENAI_API_KEY`, `OPENAI_API_BASE`
     - `OPENROUTER_API_KEY`, `OPENROUTER_API_BASE`
     - `ANTHROPIC_API_KEY`
-    - `VLLM_API_KEY`, `VLLM_API_BASE`
   - Return clear errors if missing/invalid config
 
 ---
@@ -82,14 +79,7 @@ Create/Update:
 
 ---
 
-## Step 3.6 — vLLM Adapter (New)
-- OpenAI-compatible adapter using `apiBase`
-- Optional API key support
-- Same normalization behavior as OpenAI adapter
-
----
-
-## Step 3.7 — Tests
+## Step 3.6 — Tests
 - Unit tests for:
   - Content normalization (string, parts, objects)
   - Tool-call assembly from deltas

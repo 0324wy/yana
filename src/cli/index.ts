@@ -15,7 +15,7 @@ import { ExecTool } from "../agent/tools/exec";
 import { MessageTool } from "../agent/tools/message";
 import { SpawnTool } from "../agent/tools/spawn";
 import { WebFetchTool, WebSearchTool } from "../agent/tools/web";
-import { OpenAIProvider } from "../providers/adapters/openai";
+import { ProviderFactory } from "../providers/factory";
 import { runTui } from "../channels/tui";
 import { loadConfig } from "../config";
 import { createLogger } from "../utils/logger";
@@ -60,16 +60,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const config = loadConfig();
   const createLoop = () => {
-    const provider = new OpenAIProvider({
-      apiKey: process.env.OPENAI_API_KEY ?? config.providers?.openai?.apiKey,
-      apiBase:
-        process.env.OPENAI_API_BASE ??
-        config.providers?.openrouter?.apiBase,
-      model:
-        process.env.OPENAI_MODEL ??
-        config.agents?.defaults?.model ??
-        "gpt-4o-mini",
-    });
+    const { provider } = ProviderFactory.create(config, process.env);
 
     const policy = new Policy({
       readAllowlist:

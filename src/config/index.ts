@@ -4,23 +4,22 @@ import path from "node:path";
 import { z } from "zod";
 
 const ProviderSchema = z.object({
+  default: z.string().optional(),
   openrouter: z
     .object({
       apiKey: z.string().optional(),
       apiBase: z.string().optional(),
+      referer: z.string().optional(),
+      title: z.string().optional(),
     })
     .optional(),
   anthropic: z
     .object({
       apiKey: z.string().optional(),
+      apiBase: z.string().optional(),
     })
     .optional(),
   openai: z
-    .object({
-      apiKey: z.string().optional(),
-    })
-    .optional(),
-  vllm: z
     .object({
       apiKey: z.string().optional(),
       apiBase: z.string().optional(),
@@ -31,6 +30,7 @@ const ProviderSchema = z.object({
 const AgentsSchema = z.object({
   defaults: z.object({
     model: z.string(),
+    provider: z.string().optional(),
   }),
 });
 
