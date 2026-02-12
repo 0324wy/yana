@@ -26,7 +26,7 @@ export async function runTui(createLoop: CreateLoop) {
 
   // Markdown theme for rendering
   const markdownTheme = {
-    heading: (text: string) => `\x1b[38;2;240;198;116m${text}\x1b[0m`,
+    heading: (text: string) => `\x1b[1;38;2;240;198;116m${text}\x1b[0m`, // Bold headings
     link: (text: string) => `\x1b[38;2;129;162;190m${text}\x1b[0m`,
     linkUrl: (text: string) => `\x1b[38;2;102;102;102m${text}\x1b[0m`,
     code: (text: string) => `\x1b[38;2;138;190;183m${text}\x1b[0m`,
@@ -42,6 +42,7 @@ export async function runTui(createLoop: CreateLoop) {
     strikethrough: (text: string) => `\x1b[9m${text}\x1b[0m`,
     highlightCode: (code: string) =>
       code.split("\n").map((line) => `\x1b[38;2;181;189;104m${line}\x1b[0m`),
+    codeBlockIndent: "  ", // Add indent for code blocks
   };
 
   const editorTheme = {
@@ -59,6 +60,8 @@ export async function runTui(createLoop: CreateLoop) {
   let streamingMarkdown: any | null = null;
   let streamingContent = "";
   let busy = false;
+  let scrollOffset = 0; // Lines scrolled from bottom
+  const SCROLL_PAGE_SIZE = 10; // Lines per Page Up/Down
 
   // Create terminal and TUI
   const terminal = new ProcessTerminal();
@@ -70,6 +73,48 @@ export async function runTui(createLoop: CreateLoop) {
 
   // Set focus to editor
   tui.setFocus(editor);
+
+  // Add keyboard handler for scrolling
+  const getMaxScroll = (): number => {
+    const children = (tui as any).children as any[];
+    const editorIndex = children.indexOf(editor);
+    if (editorIndex <= 0) return 0;
+    // Estimate max scroll based on message count
+    return Math.max(0, (editorIndex - 1) * 5); // ~5 lines per message average
+  };
+
+  // Store original handleInput to chain handlers
+  const originalHandleInput = (editor as any).handleInput?.bind(editor);
+  (editor as any).handleInput = (data: string) => {
+    // Handle scroll keys before passing to editor
+    if (data === "\x1b[5~") {
+      // Page Up
+      scrollOffset = Math.min(scrollOffset + SCROLL_PAGE_SIZE, getMaxScroll());
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[6~") {
+      // Page Down
+      scrollOffset = Math.max(scrollOffset - SCROLL_PAGE_SIZE, 0);
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[1;5A") {
+      // Ctrl+Up
+      scrollOffset = Math.min(scrollOffset + 1, getMaxScroll());
+      tui.requestRender();
+      return;
+    }
+    if (data === "\x1b[1;5B") {
+      // Ctrl+Down
+      scrollOffset = Math.max(scrollOffset - 1, 0);
+      tui.requestRender();
+      return;
+    }
+
+    // Pass through to editor
+    if (originalHandleInput) originalHandleInput(data);
+  };
 
   // Helper to add separator
   const addSpacer = () => {
@@ -85,204 +130,160 @@ export async function runTui(createLoop: CreateLoop) {
 
   // Helper to create user message box
   const addUserMessage = (text: string) => {
-    const border = (str: string) => `\x1b[38;2;138;190;183m${str}\x1b[0m`;
-    const box = new Box(1, 0, undefined);
-
-    // Add title manually using a text component
-    const title = new Text(
-      `\x1b[38;2;138;190;183m┌─ You ${"─".repeat(100)}\x1b[0m`,
-      0,
+    // Simple label with minimal styling
+    const label = new Text(
+      `\x1b[38;2;138;190;183m• You\x1b[0m`,
+      1,
       0
     );
-    box.addChild(title);
 
-    const content = new Markdown(text, 0, 0, markdownTheme);
-    box.addChild(content);
-
-    const bottomBorder = new Text(
-      `\x1b[38;2;138;190;183m└${"─".repeat(100)}\x1b[0m`,
-      0,
-      0
-    );
-    box.addChild(bottomBorder);
+    // Markdown content with padding
+    const content = new Markdown(text, 1, 0, markdownTheme);
 
     // Insert before editor
     const children = (tui as any).children as any[];
     const editorIndex = children.indexOf(editor);
     if (editorIndex !== -1) {
-      children.splice(editorIndex, 0, box);
+      children.splice(editorIndex, 0, label, content);
     }
 
     addSpacer();
+    scrollOffset = 0; // Auto-scroll to bottom on new message
   };
 
   // Helper to create assistant message box
   const createAssistantMessage = () => {
-    const box = new Box(1, 0, undefined);
-
-    const title = new Text(
-      `\x1b[38;2;181;189;104m┌─ Yana ${"─".repeat(100)}\x1b[0m`,
-      0,
+    // Simple label with minimal styling
+    const label = new Text(
+      `\x1b[38;2;181;189;104m• Yana\x1b[0m`,
+      1,
       0
     );
-    box.addChild(title);
 
-    const content = new Markdown("", 0, 0, markdownTheme);
-    box.addChild(content);
-
-    const bottomBorder = new Text(
-      `\x1b[38;2;181;189;104m└${"─".repeat(100)}\x1b[0m`,
-      0,
-      0
-    );
-    box.addChild(bottomBorder);
+    // Markdown content with padding
+    const content = new Markdown("", 1, 0, markdownTheme);
 
     // Insert before editor
     const children = (tui as any).children as any[];
     const editorIndex = children.indexOf(editor);
     if (editorIndex !== -1) {
-      children.splice(editorIndex, 0, box);
+      children.splice(editorIndex, 0, label, content);
     }
 
     addSpacer();
+    scrollOffset = 0; // Auto-scroll to bottom on new message
     return content;
   };
 
   // Helper to add tool call box
   const addToolCallBox = (name: string, args: Record<string, unknown>) => {
-    const box = new Box(1, 0, undefined);
-
-    const title = new Text(
-      `\x1b[38;2;255;255;0m┌─ Tool Call ${"─".repeat(100)}\x1b[0m`,
-      0,
+    // Simple label with minimal styling
+    const label = new Text(
+      `\x1b[38;2;255;255;0m🔧 Tool Call\x1b[0m`,
+      1,
       0
     );
-    box.addChild(title);
 
     const text = `${name}\n${JSON.stringify(args, null, 2)}`;
-    const content = new Text(truncate(text, 800), 0, 0);
-    box.addChild(content);
-
-    const bottomBorder = new Text(
-      `\x1b[38;2;255;255;0m└${"─".repeat(100)}\x1b[0m`,
+    const content = new Text(
+      truncate(text, 800),
+      1,
       0,
-      0
+      (text: string) => `\x1b[2m${text}\x1b[0m` // Dimmed text
     );
-    box.addChild(bottomBorder);
 
     // Insert before editor
     const children = (tui as any).children as any[];
     const editorIndex = children.indexOf(editor);
     if (editorIndex !== -1) {
-      children.splice(editorIndex, 0, box);
+      children.splice(editorIndex, 0, label, content);
     }
 
     addSpacer();
+    scrollOffset = 0; // Auto-scroll to bottom on new message
   };
 
   // Helper to add tool result box
   const addToolResultBox = (name: string, result: string) => {
-    const box = new Box(1, 0, undefined);
-
-    const title = new Text(
-      `\x1b[38;2;95;135;255m┌─ Tool Result ${"─".repeat(100)}\x1b[0m`,
-      0,
+    // Simple label with minimal styling
+    const label = new Text(
+      `\x1b[38;2;95;135;255m✓ Tool Result\x1b[0m`,
+      1,
       0
     );
-    box.addChild(title);
 
     const text = `${name}: ${result}`;
-    const content = new Text(truncate(text, 800), 0, 0);
-    box.addChild(content);
-
-    const bottomBorder = new Text(
-      `\x1b[38;2;95;135;255m└${"─".repeat(100)}\x1b[0m`,
+    const content = new Text(
+      truncate(text, 800),
+      1,
       0,
-      0
+      (text: string) => `\x1b[2m${text}\x1b[0m` // Dimmed text
     );
-    box.addChild(bottomBorder);
 
     // Insert before editor
     const children = (tui as any).children as any[];
     const editorIndex = children.indexOf(editor);
     if (editorIndex !== -1) {
-      children.splice(editorIndex, 0, box);
+      children.splice(editorIndex, 0, label, content);
     }
 
     addSpacer();
+    scrollOffset = 0; // Auto-scroll to bottom on new message
   };
 
   // Helper to add error box
   const addErrorBox = (name: string, error: string) => {
-    const box = new Box(1, 0, undefined);
-
-    const title = new Text(
-      `\x1b[38;2;204;102;102m┌─ Error ${"─".repeat(100)}\x1b[0m`,
-      0,
+    // Simple label with minimal styling
+    const label = new Text(
+      `\x1b[38;2;204;102;102m✗ Error\x1b[0m`,
+      1,
       0
     );
-    box.addChild(title);
 
     const text = `${name}: ${error}`;
     const content = new Text(
       truncate(text, 800),
-      0,
+      1,
       0,
       (text: string) => `\x1b[38;2;204;102;102m${text}\x1b[0m`
     );
-    box.addChild(content);
-
-    const bottomBorder = new Text(
-      `\x1b[38;2;204;102;102m└${"─".repeat(100)}\x1b[0m`,
-      0,
-      0
-    );
-    box.addChild(bottomBorder);
 
     // Insert before editor
     const children = (tui as any).children as any[];
     const editorIndex = children.indexOf(editor);
     if (editorIndex !== -1) {
-      children.splice(editorIndex, 0, box);
+      children.splice(editorIndex, 0, label, content);
     }
 
     addSpacer();
+    scrollOffset = 0; // Auto-scroll to bottom on new message
   };
 
   // Helper to add status box
   const addStatusBox = (message: string) => {
-    const box = new Box(1, 0, undefined);
-
-    const title = new Text(
-      `\x1b[38;2;128;128;128m┌─ Status ${"─".repeat(100)}\x1b[0m`,
-      0,
+    // Simple label with minimal styling
+    const label = new Text(
+      `\x1b[38;2;128;128;128m⋯ Status\x1b[0m`,
+      1,
       0
     );
-    box.addChild(title);
 
     const content = new Text(
       message,
-      0,
+      1,
       0,
       (text: string) => `\x1b[38;2;128;128;128m${text}\x1b[0m`
     );
-    box.addChild(content);
-
-    const bottomBorder = new Text(
-      `\x1b[38;2;128;128;128m└${"─".repeat(100)}\x1b[0m`,
-      0,
-      0
-    );
-    box.addChild(bottomBorder);
 
     // Insert before editor
     const children = (tui as any).children as any[];
     const editorIndex = children.indexOf(editor);
     if (editorIndex !== -1) {
-      children.splice(editorIndex, 0, box);
+      children.splice(editorIndex, 0, label, content);
     }
 
     addSpacer();
+    scrollOffset = 0; // Auto-scroll to bottom on new message
   };
 
   // Truncate helper
@@ -299,35 +300,57 @@ export async function runTui(createLoop: CreateLoop) {
 
   // Handle streaming delta
   const onDelta = (delta: string) => {
-    if (!streamingMarkdown) {
-      streamingContent = "";
-      streamingMarkdown = createAssistantMessage();
+    try {
+      if (!streamingMarkdown) {
+        streamingContent = "";
+        streamingMarkdown = createAssistantMessage();
+      }
+      if (!streamingMarkdown) {
+        console.error("Failed to create streaming message component");
+        return;
+      }
+      streamingContent += delta;
+      streamingMarkdown.setText(streamingContent);
+      tui.requestRender();
+    } catch (err) {
+      console.error("Error in onDelta:", err);
+      // Attempt recovery by finalizing current message
+      finalizeStreaming();
     }
-    streamingContent += delta;
-    streamingMarkdown.setText(streamingContent);
-    tui.requestRender();
   };
 
   // Handle agent events
   const onEvent = (event: AgentEvent) => {
-    finalizeStreaming();
+    try {
+      finalizeStreaming();
 
-    switch (event.type) {
-      case "status":
-        addStatusBox(event.message);
-        break;
-      case "tool_call":
-        addToolCallBox(event.name, event.arguments);
-        break;
-      case "tool_result":
-        addToolResultBox(event.name, event.result);
-        break;
-      case "tool_error":
-        addErrorBox(event.name, event.error);
-        break;
+      switch (event.type) {
+        case "status":
+          addStatusBox(event.message);
+          break;
+        case "tool_call":
+          addToolCallBox(event.name, event.arguments);
+          break;
+        case "tool_result":
+          addToolResultBox(event.name, event.result);
+          break;
+        case "tool_error":
+          addErrorBox(event.name, event.error);
+          break;
+      }
+
+      tui.requestRender();
+    } catch (err) {
+      console.error("Error in onEvent:", err);
+      // Show error to user
+      try {
+        addErrorBox("TUI Error", String(err));
+        tui.requestRender();
+      } catch {
+        // Last resort - log and continue
+        console.error("Critical TUI error - could not render error box");
+      }
     }
-
-    tui.requestRender();
   };
 
   // Handle editor submit
@@ -340,19 +363,29 @@ export async function runTui(createLoop: CreateLoop) {
     editor.setText("");
     busy = true;
 
-    // Add user message
-    addUserMessage(text);
-    tui.requestRender();
-
     try {
+      addUserMessage(text);
+      tui.requestRender();
+
       await loop.runOnceStream("default", text, onDelta, onEvent);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      addErrorBox("System", msg);
+      console.error("Error in submit handler:", err);
+      try {
+        addErrorBox("System", msg);
+        tui.requestRender();
+      } catch (innerErr) {
+        console.error("Failed to display error:", innerErr);
+      }
     } finally {
       finalizeStreaming();
       busy = false;
-      tui.requestRender();
+      // Always try to render final state
+      try {
+        tui.requestRender();
+      } catch (renderErr) {
+        console.error("Failed to render after submit:", renderErr);
+      }
     }
   };
 

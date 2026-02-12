@@ -16,19 +16,16 @@ import { MessageTool } from "../agent/tools/message";
 import { SpawnTool } from "../agent/tools/spawn";
 import { WebFetchTool, WebSearchTool } from "../agent/tools/web";
 import { ProviderFactory } from "../providers/factory";
-import { runTui } from "../channels/tui";
 import { loadConfig } from "../config";
 import { createLogger } from "../utils/logger";
 
 function parseArgs(argv: string[]) {
-  const args = { message: "", usePimonoTui: false };
+  const args = { message: "" };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if ((arg === "-m" || arg === "--message") && argv[i + 1]) {
       args.message = argv[i + 1];
       i += 1;
-    } else if (arg === "--use-pimono-tui") {
-      args.usePimonoTui = true;
     }
   }
   return args;
@@ -98,14 +95,9 @@ async function main() {
 
   logger.info("Starting TUI...");
 
-  if (args.usePimonoTui) {
-    // Use new pi-mono TUI (with dynamic import support)
-    const { runTui: runTuiPimono } = await import("../channels/tui-pimono.js");
-    await runTuiPimono(createLoop);
-  } else {
-    // Use old blessed TUI
-    await runTui(createLoop);
-  }
+  // Use pi-mono TUI as default (with dynamic import support)
+  const { runTui: runTuiPimono } = await import("../channels/tui-pimono.js");
+  await runTuiPimono(createLoop);
 }
 
 main().catch((err) => {
