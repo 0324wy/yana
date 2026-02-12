@@ -21,12 +21,14 @@ import { loadConfig } from "../config";
 import { createLogger } from "../utils/logger";
 
 function parseArgs(argv: string[]) {
-  const args = { message: "" };
+  const args = { message: "", usePimonoTui: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if ((arg === "-m" || arg === "--message") && argv[i + 1]) {
       args.message = argv[i + 1];
       i += 1;
+    } else if (arg === "--use-pimono-tui") {
+      args.usePimonoTui = true;
     }
   }
   return args;
@@ -95,7 +97,15 @@ async function main() {
   }
 
   logger.info("Starting TUI...");
-  await runTui(createLoop);
+
+  if (args.usePimonoTui) {
+    // Use new pi-mono TUI (with dynamic import support)
+    const { runTui: runTuiPimono } = await import("../channels/tui-pimono.js");
+    await runTuiPimono(createLoop);
+  } else {
+    // Use old blessed TUI
+    await runTui(createLoop);
+  }
 }
 
 main().catch((err) => {

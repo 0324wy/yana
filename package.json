@@ -33,6 +33,7 @@
   },
   "homepage": "https://github.com/0324wy/yana#readme",
   "dependencies": {
+    "@mariozechner/pi-tui": "^0.51.6",
     "blessed": "^0.1.81",
     "cron-parser": "^4.9.0",
     "date-fns": "^3.0.0",
